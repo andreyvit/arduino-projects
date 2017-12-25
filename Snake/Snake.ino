@@ -41,17 +41,22 @@ LedControl led(PIN_LED_DIN, PIN_LED_CLK, PIN_LED_CS, 1);
 
 int n = 0;
 
+#define DIR int
+enum { DIR_NONE, DIR_U, DIR_R, DIR_D, DIR_L };
+const signed char DirX[] = { 0, 0, 1, 0, -1 };
+const signed char DirY[] = { 0, -1, 0, 1, 0 };
+
 enum { ROWS = 8, COLS = 8 };
 #define COORD unsigned char
 const COORD COORD_NONE = 0xFF;
 COORD Coord(int x, int y) {
-  return ((unsigned)x << 4) | ((unsigned)y);
+  return ((unsigned)(x) << 4) | ((unsigned)(y));
 }
 int CoordX(COORD c) {
-  return c >> 4;
+  return (int)(c >> 4);
 }
 int CoordY(COORD c) {
-  return c & 0xF;
+  return (int)(c & 0xF);
 }
 
 int jx, jy;
@@ -59,12 +64,12 @@ unsigned long jxms, jyms;
 const int J_DELTA = 20;
 const int J_UPD = 500;
 Debounce<10> jb_dbnc;
-Debounce<10> jr_dbnc, jl_dbnc;
+Debounce<10> jr_dbnc, jl_dbnc, ju_dbnc, jd_dbnc;
 
 uint8_t segs[] = { 0xff, 0xff, 0xff, 0xff };
 int pos;
 
-const int MAX_LEN = 10;
+const int MAX_LEN = 20;
 COORD coords[MAX_LEN];
 int coord_s, coord_e;
 int len;
@@ -87,6 +92,19 @@ const unsigned long BEEP_APPLE_DISAPPEAR = 5;
 const unsigned long BEEP_APPLE_EATEN = 20;
 
 int score = 0;
+DIR dir = DIR_R;
+
+FlexTimer move_timer;
+
+void restart_move_timer() {
+  int speed = score;  // score / 10
+  unsigned long delay = 350;
+  for (int i = 0; i < speed; i++) {
+    delay = delay * 2 / 3;
+  }
+  delay += 150;
+  move_timer.restart(delay);
+}
 
 bool in_snake(COORD c) {
   for (int i = 0; i < MAX_LEN; i++) {
@@ -129,9 +147,12 @@ void submove(COORD c) {
   bool eaten = false;
   if (c == apple) {
     beeper.beep(BEEP_APPLE_EATEN); 
-    score += 1;
     remove_apple();
     eaten = true;
+    score += 1;
+    if (game == GAME_SNAKE_COMPLEX) {
+      restart_move_timer();
+    }
   }
 
   if (len >= target_len && (!eaten || len == MAX_LEN)) {
@@ -170,6 +191,20 @@ void move(COORD c) {
       dy = 0;
     }
   }
+}
+
+void make_auto_move() {
+  COORD head = get_head();
+  int x = CoordX(head) + DirX[dir];
+  int y = CoordY(head) + DirY[dir];
+  if (x < 0 || x >= COLS || y < 0 || y >= ROWS) {
+    return;
+  }
+  COORD c = Coord(x, y);
+  if (in_snake(c)) {
+    return;
+  }
+  submove(c);
 }
 
 void redraw_snake_field() {
@@ -229,9 +264,6 @@ void setup()
 {
   display.setBrightness(0xf);
 
-  uint8_t data[] = { 0xff, 0xff, 0xff, 0xff };
-  display.setSegments(data);
-
   pinMode(PIN_JX, INPUT);
   pinMode(PIN_JY, INPUT);
   pinMode(PIN_JB, INPUT_PULLUP);
@@ -240,13 +272,6 @@ void setup()
 
   led.shutdown(0, false);
   led.setIntensity(0, 0xf);
-  led.clearDisplay(0);
-
-  place_apple();
-
-  for (int i = 0; i < MAX_LEN; i++) {
-    coords[i] = COORD_NONE;
-  }
 
   set_mode(MODE_WELCOME);
 }
@@ -349,7 +374,20 @@ void loop_welcome()
 }
 
 void enter_snake() {
+  score = 0;
+  apple = COORD_NONE;
+  target_len = 2;
+  len = 0;
+  place_apple();
+
+  for (int i = 0; i < MAX_LEN; i++) {
+    coords[i] = COORD_NONE;
+  }
+
   redraw_snake_field();
+  if (game == GAME_SNAKE_COMPLEX) {
+    restart_move_timer();
+  }
 }
 
 void loop_snake()
@@ -357,45 +395,63 @@ void loop_snake()
   unsigned long ms = millis();
   int x = analogRead(PIN_JX);
   int y = analogRead(PIN_JY);
-  if (abs(jx - x) > J_DELTA || (ms - jxms) >= J_UPD) {
-    jx = x;
-    jxms = ms;
-  }
-  if (abs(jy - y) > J_DELTA || (ms - jyms) >= J_UPD) {
-    jy = y;
-    jyms = ms;
-  }
 
   if (jb_dbnc.rose()) {
     set_mode(MODE_WELCOME);
     return;
   }
 
-  pos = (jx * 5 / 1024);
+//  pos = (jx * 5 / 1024);
+//  for (int i = 0; i < 4; ++i) {
+//    segs[i] = 0;
+//  }
+//  const byte marker = 0b00111111;
+//  bool blink = false;
+//  //const byte marker = 0b00110110;
+//  if (pos == 2) {  
+//    segs[1] = 0b00000110 | (blink ? 0b10000000 : 0);
+//    segs[2] = 0b00110000;
+//  } else if (pos < 2) {
+//    segs[pos] = marker | (blink ? 0b01000000 : 0);
+//  } else {
+//    segs[pos-1] = marker | (blink ? 0b01000000 : 0);
+//  }
+//  display.setSegments(segs);
 
-#if 0
-  for (int i = 0; i < 4; ++i) {
-    segs[i] = 0;
-  }
-  const byte marker = 0b00111111;
-  bool blink = false;
-  //const byte marker = 0b00110110;
-  if (pos == 2) {  
-    segs[1] = 0b00000110 | (blink ? 0b10000000 : 0);
-    segs[2] = 0b00110000;
-  } else if (pos < 2) {
-    segs[pos] = marker | (blink ? 0b01000000 : 0);
-  } else {
-    segs[pos-1] = marker | (blink ? 0b01000000 : 0);
-  }
-
-  display.setSegments(segs);
-#else
   display.showNumberDec(score, true);
-#endif
 
-  COORD c = Coord((jx * 8 / 1024), (jy * 8 / 1024));
-  move(c);
+  if (game == GAME_SNAKE_COMPLEX) {
+    jl_dbnc.update(x < PIN_ARROW_SENS);
+    jr_dbnc.update(x > 1023-PIN_ARROW_SENS);
+    ju_dbnc.update(y < PIN_ARROW_SENS);
+    jd_dbnc.update(y > 1023-PIN_ARROW_SENS);
+  
+    if (jl_dbnc.rose()) {
+      dir = DIR_L;
+    } else if (jr_dbnc.rose()) {
+      dir = DIR_R;
+    } else if (ju_dbnc.rose()) {
+      dir = DIR_U;
+    } else if (jd_dbnc.rose()) {
+      dir = DIR_D;
+    }
+ 
+    if (move_timer.fired(ms)) {
+      make_auto_move();
+      restart_move_timer();
+    }
+  } else {
+    if (abs(jx - x) > J_DELTA || (ms - jxms) >= J_UPD) {
+      jx = x;
+      jxms = ms;
+    }
+    if (abs(jy - y) > J_DELTA || (ms - jyms) >= J_UPD) {
+      jy = y;
+      jyms = ms;
+    }
+    COORD c = Coord((jx * 8 / 1024), (jy * 8 / 1024));
+    move(c);
+  }
 
   if (apple == COORD_NONE) {
     if (apple_appear_ms == 0) {
