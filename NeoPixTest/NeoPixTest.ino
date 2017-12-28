@@ -2,11 +2,18 @@
 #define ENABLE_SONAR 0
 #define ENABLE_BLUE_TRACE 0
 
+#include "config.h"
+
 #if ENABLE_WIFI 
-#include <ESP8266WiFi.h>          //ESP8266 Core WiFi Library (you most likely already have this in your sketch)
-#include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
-#include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
-#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
+
+//#include <ESP8266WiFi.h>          //ESP8266 Core WiFi Library (you most likely already have this in your sketch)
+//#include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
+//#include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
+//#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
 #endif
 
 #include <NeoPixelBus.h>
@@ -54,7 +61,7 @@ Timer<200> blue_trace_timer;
 #endif
 
 #if ENABLE_WIFI 
-WiFiManager wifiManager;
+//WiFiManager wifiManager;
 #endif
 
 struct Mover {
@@ -117,17 +124,26 @@ Mover movers[] = {
 
 void setup()
 {
+  Serial.begin(115200);
+  //while (!Serial); // wait for serial attach
+  Serial.println("Booting");
+
 #if ENABLE_WIFI 
-  {
-    String ssid = "LEDs " + String(ESP.getChipId());
-    wifiManager.autoConnect(ssid.c_str(), NULL);
+//  {
+//    String ssid = "LEDs " + String(ESP.getChipId());
+//    wifiManager.autoConnect(ssid.c_str(), NULL);
+//  }
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(kWifiNetwork, kWifiPassword);
+  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    Serial.println("Connection Failed! Rebooting...");
+    delay(5000);
+    ESP.restart();
   }
 #endif
   
   pinMode(LED_BUILTIN, OUTPUT);
   
-    Serial.begin(115200);
-    //while (!Serial); // wait for serial attach
 
     Serial.println();
     Serial.println("Initializing...");
